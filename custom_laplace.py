@@ -97,10 +97,11 @@ class Laplace:
             self.subnet.count_params_subnet,
             device=self.device,
         )
-        for X, y in tqdm(data_loader):
+        for X, y in data_loader:
             self.model.zero_grad()
             X, y = X.to(self.device), y.to(self.device)
             Js, f = self._jacobian(X)
+            print("Done with jacobians")
             ps = torch.softmax(f, dim=-1)
             H_lik = torch.diag_embed(ps) - torch.einsum("mk,mc->mck", ps, ps)
             H_batch = torch.einsum("bcp,bck,bkq->pq", Js, H_lik, Js)
@@ -124,3 +125,20 @@ class Laplace:
         kappa = 1 / torch.sqrt(1.0 + torch.pi / 8 * f_var.diagonal(dim1=1, dim2=2))
         final_ppd = torch.softmax(kappa * f_mu, dim=-1)
         return final_ppd
+
+
+# def jacobians(net, params_dict, buffers_dict, subnet_mask_indices, x):
+#     def model_fn_params_only(params_dict, buffers_dict):
+#         out = functional_call(net, (params_dict, buffers_dict), x)
+#         return out, out
+
+#     with torch.no_grad():
+#         Js, f = jacrev(model_fn_params_only, has_aux=True)(params_dict, buffers_dict)
+
+#     Js = [
+#         j.flatten(start_dim=-p.dim()) for j, p in zip(Js.values(), params_dict.values())
+#     ]
+#     Js = torch.cat(Js, dim=-1)
+
+#     Js = Js[:, :, subnet_mask_indices]
+#     return Js, f

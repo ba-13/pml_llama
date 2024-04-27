@@ -42,7 +42,8 @@ class Subnet:
         parameter_vector = self._param_vector(self.model)
         subnet_mask = torch.zeros_like(parameter_vector).bool()
         subnet_mask[idx] = 1
-        return subnet_mask.nonzero(as_tuple=True)[0]
+        subnet_mask_indices = subnet_mask.nonzero(as_tuple=True)[0]
+        return subnet_mask_indices
 
 
 class Laplace:
@@ -73,14 +74,12 @@ class Laplace:
         self.posterior_covariance = None
 
     def _jacobian(self, data):
-        def _model_fn_params_only(params_dict, buffers_dict):
+        def model_fns(params_dict, buffers_dict):
             out = functional_call(self.model, (params_dict, buffers_dict), data)
             return out, out
 
         with torch.no_grad():
-            Js, f = jacrev(_model_fn_params_only, has_aux=True)(
-                self.params_dict, self.buffers_dict
-            )
+            Js, f = jacrev(model_fns, has_aux=True)(self.params_dict, self.buffers_dict)
 
         Js = [
             j.flatten(start_dim=-p.dim())
@@ -89,6 +88,16 @@ class Laplace:
         Js = torch.cat(Js, dim=-1)
         Js = Js[:, :, self.subnet_mask_indices]
         return Js, f
+
+    def calculate_covariance(self, H):
+        prior_precision_diag = torch.ones(
+            self.subnet.count_params_subnet, device=self.device
+        )
+        posterior_precision = self.H_factor * self.H + torch.diag(prior_precision_diag)
+        invsqrt_precision = _precision_to_scale_tril
+        posterior_scale = invsqrt_precision(posterior_precision)
+        self.posterior_covariance = posterior_scale @ posterior_scale.T
+        return self.posterior_covariance
 
     def calculate_ggn(self, data_loader, lossfn):
         self.loss = 0
@@ -101,21 +110,13 @@ class Laplace:
             self.model.zero_grad()
             X, y = X.to(self.device), y.to(self.device)
             Js, f = self._jacobian(X)
-            print("Done with jacobians")
             ps = torch.softmax(f, dim=-1)
             H_lik = torch.diag_embed(ps) - torch.einsum("mk,mc->mck", ps, ps)
             H_batch = torch.einsum("bcp,bck,bkq->pq", Js, H_lik, Js)
             loss_batch = 1.0 * lossfn(f, y)
             self.loss += loss_batch
             self.H += H_batch
-
-        prior_precision_diag = torch.ones(
-            self.subnet.count_params_subnet, device=self.device
-        )
-        posterior_precision = self.H_factor * self.H + torch.diag(prior_precision_diag)
-        invsqrt_precision = _precision_to_scale_tril
-        posterior_scale = invsqrt_precision(posterior_precision)
-        self.posterior_covariance = posterior_scale @ posterior_scale.T
+        return self.calculate_covariance(self.H)
 
     def calculate_ppd(self, X):
         Js, f_mu = self._jacobian(X)

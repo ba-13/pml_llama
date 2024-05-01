@@ -128,18 +128,10 @@ class Laplace:
         return final_ppd
 
 
-# def jacobians(net, params_dict, buffers_dict, subnet_mask_indices, x):
-#     def model_fn_params_only(params_dict, buffers_dict):
-#         out = functional_call(net, (params_dict, buffers_dict), x)
-#         return out, out
-
-#     with torch.no_grad():
-#         Js, f = jacrev(model_fn_params_only, has_aux=True)(params_dict, buffers_dict)
-
-#     Js = [
-#         j.flatten(start_dim=-p.dim()) for j, p in zip(Js.values(), params_dict.values())
-#     ]
-#     Js = torch.cat(Js, dim=-1)
-
-#     Js = Js[:, :, subnet_mask_indices]
-#     return Js, f
+def shrink_perturb(model, device, lamda=0.5, sigma=0.01):
+    for name, param in model.named_parameters():
+        if "weight" in name:
+            param.data = (lamda * param.data) + torch.normal(
+                0.0, sigma, size=param.data.shape
+            ).to(device)
+    return

@@ -1,7 +1,7 @@
 from torch.distributions.multivariate_normal import _precision_to_scale_tril
 from torch.nn.utils.convert_parameters import parameters_to_vector
 from torch.func import functional_call, jacrev
-from tqdm import tqdm
+# from tqdm import tqdm
 import torch.nn as nn
 import torch
 
